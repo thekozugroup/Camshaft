@@ -1,0 +1,48 @@
+# Scenario 3 — Postgres 13 -> 16 migration with uncertain durations
+# Load with: camshaft bulk --file docs/examples/migration-plan.yaml
+# After load, run: camshaft risk-analysis  to see P50/P80/P95 and criticality_index
+
+plan:
+  name: "DB Migration"
+  mode: sprint
+
+tasks:
+  - id: snapshot
+    name: "Snapshot prod data"
+    duration: 2
+    category: ops
+  - id: upgrade-stage
+    name: "Upgrade staging PG"
+    duration: 4
+    category: ops
+  - id: test-staging
+    name: "Full app test suite on staging"
+    duration: 6
+    priority: high
+    category: qa
+  - id: migrate-schema
+    name: "Apply schema changes"
+    duration: 3
+    priority: high
+    category: backend
+  - id: load-test
+    name: "Load test against upgraded stack"
+    duration: 4
+    category: qa
+  - id: upgrade-prod
+    name: "Upgrade production"
+    duration: 3
+    priority: high
+    category: ops
+  - id: verify-prod
+    name: "Post-migration verify"
+    duration: 2
+    category: ops
+
+dependencies:
+  - { from: snapshot,       to: upgrade-stage }
+  - { from: upgrade-stage,  to: test-staging }
+  - { from: test-staging,   to: migrate-schema }
+  - { from: migrate-schema, to: load-test }
+  - { from: load-test,      to: upgrade-prod }
+  - { from: upgrade-prod,   to: verify-prod }

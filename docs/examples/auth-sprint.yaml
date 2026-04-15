@@ -1,0 +1,63 @@
+# Scenario 1 — JWT auth for an Express API
+# Load with: camshaft bulk --file docs/examples/auth-sprint.yaml
+
+plan:
+  name: "JWT Auth"
+  mode: sprint
+
+tasks:
+  - id: schema
+    name: "User + session schema"
+    duration: 1
+    category: backend
+  - id: migrations
+    name: "Write migrations"
+    duration: 1
+    category: backend
+  - id: repo
+    name: "UserRepository"
+    duration: 2
+    category: backend
+  - id: hashing
+    name: "Password hashing utils"
+    duration: 1
+    category: backend
+  - id: jwt-utils
+    name: "JWT sign/verify helpers"
+    duration: 1
+    category: backend
+  - id: auth-svc
+    name: "AuthService (login/register)"
+    duration: 3
+    priority: high
+    category: backend
+  - id: middleware
+    name: "authenticate() middleware"
+    duration: 2
+    category: backend
+  - id: routes
+    name: "POST /login, /register, /me"
+    duration: 2
+    category: backend
+  - id: tests
+    name: "Integration tests"
+    duration: 3
+    priority: high
+    category: qa
+  - id: docs
+    name: "README + API docs"
+    duration: 1
+    category: docs
+
+dependencies:
+  - { from: schema,     to: migrations }
+  - { from: schema,     to: repo }
+  - { from: migrations, to: repo }
+  - { from: repo,       to: auth-svc }
+  - { from: hashing,    to: auth-svc }
+  - { from: jwt-utils,  to: auth-svc }
+  - { from: jwt-utils,  to: middleware }
+  - { from: auth-svc,   to: routes }
+  - { from: middleware, to: routes }
+  - { from: routes,     to: tests }
+  - { from: routes,     to: docs }

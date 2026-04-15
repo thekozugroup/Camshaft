@@ -1,0 +1,54 @@
+# Scenario 2 — Q2 product release across four teams
+# Load with: camshaft bulk --file docs/examples/q2-roadmap.yaml
+
+plan:
+  name: "Q2 Release"
+  mode: roadmap
+  start: 2026-04-01
+
+milestones:
+  - id: m-alpha
+    name: "Alpha feature-complete"
+  - id: m-beta
+    name: "Beta to customers"
+  - id: m-ga
+    name: "GA launch"
+
+resources:
+  - { id: backend-team,  name: "Backend Team",  type: labor, units: 3 }
+  - { id: mobile-team,   name: "Mobile Team",   type: labor, units: 2 }
+  - { id: frontend-team, name: "Frontend Team", type: labor, units: 2 }
+  - { id: data-team,     name: "Data Team",     type: labor, units: 2 }
+  - { id: qa-team,       name: "QA Team",       type: labor, units: 2 }
+  - { id: growth-team,   name: "Growth Team",   type: labor, units: 1 }
+
+tasks:
+  - { id: api-refactor, name: "API refactor",       duration: 10, category: backend }
+  - { id: mobile-ui,    name: "Mobile UI redesign", duration: 15, category: mobile }
+  - { id: web-ui,       name: "Web UI update",      duration: 12, category: frontend }
+  - { id: analytics,    name: "Analytics pipeline", duration: 8,  category: data }
+  - { id: perf,         name: "Perf hardening",     duration: 6,  category: backend }
+  - { id: qa,           name: "QA cycle",           duration: 10, category: qa }
+  - { id: launch,       name: "Marketing + launch", duration: 5,  category: growth }
+
+assignments:
+  - { task: api-refactor, resource: backend-team }
+  - { task: mobile-ui,    resource: mobile-team }
+  - { task: web-ui,       resource: frontend-team }
+  - { task: analytics,    resource: data-team }
+  - { task: perf,         resource: backend-team }
+  - { task: qa,           resource: qa-team }
+  - { task: launch,       resource: growth-team }
+
+dependencies:
+  - { from: api-refactor, to: mobile-ui }
+  - { from: api-refactor, to: web-ui }
+  - { from: api-refactor, to: analytics }
+  - { from: mobile-ui,    to: m-alpha }
+  - { from: web-ui,       to: m-alpha }
+  - { from: analytics,    to: m-alpha }
+  - { from: m-alpha,      to: perf }
+  - { from: perf,         to: qa }
+  - { from: qa,           to: m-beta }
+  - { from: m-beta,       to: launch }
+  - { from: launch,       to: m-ga }

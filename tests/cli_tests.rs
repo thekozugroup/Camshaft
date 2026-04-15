@@ -731,3 +731,147 @@ fn test_ready_has_schedule_priority_and_on_critical_path() {
         .stdout(predicate::str::contains("\"schedule_priority\""))
         .stdout(predicate::str::contains("\"on_critical_path\""));
 }
+
+#[test]
+fn test_bulk_yaml_creates_plan() {
+    let dir = setup_test_dir();
+    let yaml = r#"name: "Bulk Test"
+mode: sprint
+tasks:
+  - id: a
+    name: "Alpha"
+    duration: 4
+    priority: high
+  - id: b
+    name: "Bravo"
+    duration: 2
+  - id: c
+    name: "Charlie"
+    duration: 3
+dependencies:
+  - [a, b]
+  - { from: a, to: c, type: ss, lag: 1 }
+milestones:
+  - id: m1
+    name: "Milestone One"
+resources:
+  - id: r1
+    name: "Agent"
+    type: labor
+    units: 8
+assignments:
+  - { task: b, resource: r1, units: 2 }
+"#;
+    std::fs::write(dir.path().join("plan.yaml"), yaml).unwrap();
+
+    camshaft()
+        .current_dir(dir.path())
+        .args(["bulk", "--file", "plan.yaml"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"created\""))
+        .stdout(predicate::str::contains("\"tasks_created\": 3"))
+        .stdout(predicate::str::contains("\"dependencies_created\": 2"))
+        .stdout(predicate::str::contains("\"milestones_created\": 1"))
+        .stdout(predicate::str::contains("\"resources_created\": 1"))
+        .stdout(predicate::str::contains("\"assignments_created\": 1"));
+
+    assert!(dir.path().join(".camshaft/plan.json").exists());
+
+    // Verify the plan is queryable.
+    camshaft()
+        .current_dir(dir.path())
+        .args(["query", "status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"a\""))
+        .stdout(predicate::str::contains("\"b\""))
+        .stdout(predicate::str::contains("\"c\""));
+}
+
+#[test]
+fn test_bulk_json_creates_plan() {
+    let dir = setup_test_dir();
+    let json = r#"{
+        "name": "Bulk JSON",
+        "mode": "sprint",
+        "tasks": [
+            {"id": "x", "name": "X", "duration": 2},
+            {"id": "y", "name": "Y", "duration": 3}
+        ],
+        "dependencies": [["x", "y"]]
+    }"#;
+    std::fs::write(dir.path().join("plan.json"), json).unwrap();
+
+    camshaft()
+        .current_dir(dir.path())
+        .args(["bulk", "--file", "plan.json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"tasks_created\": 2"))
+        .stdout(predicate::str::contains("\"dependencies_created\": 1"));
+}
+
+#[test]
+fn test_bulk_refuses_overwrite_without_force() {
+    let dir = setup_test_dir();
+    camshaft()
+        .current_dir(dir.path())
+        .args(["init", "--name", "Existing", "--mode", "sprint"])
+        .assert()
+        .success();
+
+    let yaml = "name: \"Bulk\"\nmode: sprint\ntasks: []\n";
+    std::fs::write(dir.path().join("plan.yaml"), yaml).unwrap();
+
+    camshaft()
+        .current_dir(dir.path())
+        .args(["bulk", "--file", "plan.yaml"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("plan_already_exists"));
+
+    // With --force it succeeds
+    camshaft()
+        .current_dir(dir.path())
+        .args(["bulk", "--file", "plan.yaml", "--force"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"created\""));
+}
+
+#[test]
+fn test_bulk_atomic_on_invalid_dependency() {
+    let dir = setup_test_dir();
+    let yaml = r#"name: "Bad"
+mode: sprint
+tasks:
+  - id: a
+    name: "A"
+    duration: 1
+dependencies:
+  - [a, nonexistent]
+"#;
+    std::fs::write(dir.path().join("bad.yaml"), yaml).unwrap();
+
+    camshaft()
+        .current_dir(dir.path())
+        .args(["bulk", "--file", "bad.yaml"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("validation_failed"));
+
+    // No plan file should have been written
+    assert!(!dir.path().join(".camshaft/plan.json").exists());
+}
+
+#[test]
+fn test_bulk_rejects_absolute_path() {
+    let dir = setup_test_dir();
+    camshaft()
+        .current_dir(dir.path())
+        .args(["bulk", "--file", "/etc/passwd"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("validation_failed"));
+}

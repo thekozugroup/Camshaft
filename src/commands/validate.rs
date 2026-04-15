@@ -149,15 +149,73 @@ pub fn run() -> Result<()> {
         }
 
         if visited < task_ids.len() {
-            let cycle_nodes: Vec<String> = in_degree
+            // Fall-back: the full SCC reachable set (over-reports).
+            let scc_nodes: Vec<String> = in_degree
                 .iter()
                 .filter(|(_, &deg)| deg > 0)
                 .map(|(&node, _)| node.to_string())
                 .collect();
-            let m = format!(
-                "Cycle detected involving tasks: {}",
-                cycle_nodes.join(", ")
-            );
+
+            // Preferred: ask GanttML for the minimal cycle. If it can build
+            // the graph and finds a cycle, use those task IDs (a chain like
+            // R1 -> R2 -> R4 -> R1). Fall back to the SCC set on any error.
+            let (cycle_nodes, cycle_chain): (Vec<String>, Option<String>) =
+                match gantt_ml::graph::ScheduleGraph::from_project(project) {
+                    Ok(graph) => match graph.detect_cycles() {
+                        Some(cycle) if !cycle.is_empty() => {
+                            let chain = cycle.join(" -> ");
+                            // Dedupe for affected_tasks; keep chain form for msg.
+                            let mut seen = HashSet::new();
+                            let unique: Vec<String> = cycle
+                                .into_iter()
+                                .filter(|s| seen.insert(s.clone()))
+                                .collect();
+                            (unique, Some(chain))
+                        }
+                        _ => (scc_nodes.clone(), None),
+                    },
+                    Err(err) => {
+                        // The error message may already contain the precise
+                        // chain (e.g. "... [R1, R2, R4, R1]"). Try to parse it.
+                        let raw = err.to_string();
+                        if let Some(start) = raw.find('[') {
+                            if let Some(end) = raw[start..].find(']') {
+                                let inner = &raw[start + 1..start + end];
+                                let parsed: Vec<String> = inner
+                                    .split(',')
+                                    .map(|s| s.trim().trim_matches('"').to_string())
+                                    .filter(|s| !s.is_empty() && task_ids.contains(s.as_str()))
+                                    .collect();
+                                if !parsed.is_empty() {
+                                    // Dedupe while preserving the chain order
+                                    // for the message.
+                                    let chain = parsed.join(" -> ");
+                                    let mut seen = HashSet::new();
+                                    let unique: Vec<String> = parsed
+                                        .into_iter()
+                                        .filter(|s| seen.insert(s.clone()))
+                                        .collect();
+                                    (unique, Some(chain))
+                                } else {
+                                    (scc_nodes.clone(), None)
+                                }
+                            } else {
+                                (scc_nodes.clone(), None)
+                            }
+                        } else {
+                            (scc_nodes.clone(), None)
+                        }
+                    }
+                };
+
+            let m = if let Some(chain) = cycle_chain {
+                format!("Cycle detected: {}", chain)
+            } else {
+                format!(
+                    "Cycle detected involving tasks: {}",
+                    cycle_nodes.join(", ")
+                )
+            };
             errors.push(m.clone());
             issues.push(Issue {
                 severity: "error",

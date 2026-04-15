@@ -1,0 +1,50 @@
+# Example bulk-plan file for `camshaft bulk --file <path>`
+# Single-shot plan creation — one file, one command, one save.
+
+name: "Auth Implementation"
+mode: sprint           # "sprint" (hours) or "roadmap" (days)
+start: 2026-05-01      # optional; YYYY-MM-DD (useful for roadmap mode)
+
+tasks:
+  - id: design-api
+    name: "Design API Schema"
+    duration: 4
+    priority: high
+    category: feature
+  - id: impl-auth
+    name: "Implement Auth"
+    duration: 8
+    priority: critical
+    category: feature
+  - id: write-tests
+    name: "Write Tests"
+    duration: 6
+    priority: high
+    category: quality
+  - id: deploy
+    name: "Deploy to Staging"
+    duration: 2
+    priority: medium
+    category: ops
+
+# Dependencies: either a two-element array (implicit FS, 0 lag)
+# or an object form with optional `type` (fs|ss|ff|sf) and `lag`.
+dependencies:
+  - [design-api, impl-auth]
+  - [design-api, write-tests]
+  - { from: impl-auth, to: deploy, type: ss, lag: 2 }
+  - [write-tests, deploy]
+
+milestones:
+  - id: mvp
+    name: "MVP Ready"
+
+resources:
+  - id: agent-1
+    name: "Dev Agent"
+    type: labor
+    units: 8
+
+assignments:
+  - { task: impl-auth, resource: agent-1, units: 4 }
+  - { task: write-tests, resource: agent-1, units: 2 }

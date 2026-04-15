@@ -148,6 +148,17 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         apply: bool,
     },
+
+    /// Bulk-create a plan from a YAML or JSON file
+    Bulk {
+        /// Input file path (relative, no '..' components; .yaml/.yml/.json)
+        #[arg(long)]
+        file: String,
+
+        /// Overwrite existing plan
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -317,7 +328,17 @@ enum SprintCommands {
     },
 
     /// Get AI-friendly daily schedule suggestion
-    Suggest,
+    Suggest {
+        /// Optional total sprint capacity in hours. When provided, lowest-
+        /// priority tasks are descoped first and per-day hours are capped at
+        /// capacity / horizon_days.
+        #[arg(long)]
+        capacity: Option<f64>,
+
+        /// Working-day horizon used with --capacity. Defaults to 10.
+        #[arg(long, default_value_t = 10)]
+        horizon_days: usize,
+    },
 
     /// Check for overcommitment
     OvercommitCheck {
@@ -373,7 +394,9 @@ fn main() {
             SprintCommands::Plan { capacity, hours_per_day } => {
                 commands::sprint::plan(capacity, hours_per_day)
             }
-            SprintCommands::Suggest => commands::sprint::suggest(),
+            SprintCommands::Suggest { capacity, horizon_days } => {
+                commands::sprint::suggest(capacity, horizon_days)
+            }
             SprintCommands::OvercommitCheck { hours_per_day } => {
                 commands::sprint::overcommit_check(hours_per_day)
             }
@@ -398,6 +421,7 @@ fn main() {
             commands::velocity::run(repo.as_deref(), days)
         }
         Commands::LevelResources { apply } => commands::level::run(apply),
+        Commands::Bulk { file, force } => commands::bulk::run(&file, force),
     };
 
     if let Err(e) = result {

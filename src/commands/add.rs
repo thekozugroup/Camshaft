@@ -11,8 +11,8 @@ pub fn add_task(
     id: &str,
     name: &str,
     duration: f64,
-    _priority: &str,
-    _category: Option<&str>,
+    priority: &str,
+    category: Option<&str>,
 ) -> Result<()> {
     let mut file = load_plan()?;
 
@@ -20,7 +20,18 @@ pub fn add_task(
         return Err(CamshaftError::DuplicateTask(id.to_string()));
     }
 
-    let activity = Activity::new(id, name, duration);
+    let mut activity = Activity::new(id, name, duration);
+    // Persist priority in custom_fields so downstream commands (e.g. sprint)
+    // can honour it. Normalised to lowercase for stable matching.
+    let normalized_priority = priority.to_lowercase();
+    activity
+        .custom_fields
+        .insert("priority".to_string(), serde_json::json!(normalized_priority));
+    if let Some(cat) = category {
+        activity
+            .custom_fields
+            .insert("category".to_string(), serde_json::json!(cat));
+    }
     file.project.activities.insert(id.to_string(), activity);
     save_plan(&file)?;
 
