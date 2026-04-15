@@ -122,6 +122,37 @@ pub fn run(_objective: &str, fast_track: bool, crash: bool) -> Result<()> {
 
     save_plan(&plan)?;
 
+    // Tasks in the first parallel group — what an agent should dispatch right now.
+    let next_ready_tasks: Vec<String> = parallel_groups
+        .first()
+        .map(|(_, tasks, _)| tasks.clone())
+        .unwrap_or_default();
+
+    // Human/agent-readable hint summarizing what to do first.
+    let execution_hint: String = {
+        let start_clause = if next_ready_tasks.is_empty() {
+            "No ready tasks.".to_string()
+        } else if next_ready_tasks.len() == 1 {
+            format!("Start with: {}.", next_ready_tasks[0])
+        } else {
+            format!(
+                "Start with: {} (run in parallel).",
+                next_ready_tasks.join(", ")
+            )
+        };
+
+        let path_clause = if cpm.critical_path.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " Then proceed through critical path: {}",
+                cpm.critical_path.join(" \u{2192} ")
+            )
+        };
+
+        format!("{}{}", start_clause, path_clause)
+    };
+
     let output = json!({
         "project_duration": cpm.project_duration,
         "critical_path": cpm.critical_path,
@@ -129,6 +160,8 @@ pub fn run(_objective: &str, fast_track: bool, crash: bool) -> Result<()> {
         "total_float": cpm.total_float,
         "bottlenecks": bottlenecks,
         "suggested_order": suggested_order,
+        "next_ready_tasks": next_ready_tasks,
+        "execution_hint": execution_hint,
         "optimization_moves": [],
     });
 

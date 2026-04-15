@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use gantt_ml::cpm::CpmEngine;
-use gantt_ml::model::types::Duration;
+use gantt_ml::model::types::{ActivityStatus, Duration};
 use gantt_ml::Project;
 use serde_json::json;
 
@@ -191,6 +191,74 @@ pub fn what_if(task_id: &str, new_duration: f64) -> Result<()> {
             "critical_path": cpm_after.critical_path,
         },
         "impact": impact,
+    });
+
+    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    Ok(())
+}
+
+/// List tasks whose predecessors are all completed — i.e. ready to work on.
+pub fn ready() -> Result<()> {
+    let (plan, cpm) = load_and_calculate()?;
+
+    // Set of completed task IDs.
+    let completed: HashSet<&str> = plan
+        .project
+        .activities
+        .iter()
+        .filter(|(_, act)| act.status == ActivityStatus::Completed)
+        .map(|(id, _)| id.as_str())
+        .collect();
+
+    // Build map: successor_id -> Vec<predecessor_id>
+    let mut preds_of: HashMap<&str, Vec<&str>> = HashMap::new();
+    for dep in &plan.project.dependencies {
+        preds_of
+            .entry(dep.successor_id.as_str())
+            .or_default()
+            .push(dep.predecessor_id.as_str());
+    }
+
+    // Critical path set for priority_hint.
+    let critical_set: HashSet<&str> = cpm.critical_path.iter().map(|s| s.as_str()).collect();
+
+    let mut ready_tasks: Vec<serde_json::Value> = Vec::new();
+    let mut total_remaining: usize = 0;
+
+    for (id, act) in &plan.project.activities {
+        if act.status == ActivityStatus::Completed {
+            continue;
+        }
+        total_remaining += 1;
+
+        let preds = preds_of.get(id.as_str()).cloned().unwrap_or_default();
+        let all_preds_done = preds.iter().all(|p| completed.contains(p));
+        if !all_preds_done {
+            continue;
+        }
+
+        let priority_hint = if critical_set.contains(id.as_str()) {
+            "critical"
+        } else {
+            "medium"
+        };
+
+        ready_tasks.push(json!({
+            "id": id,
+            "name": act.name,
+            "duration": act.original_duration.days,
+            "priority_hint": priority_hint,
+        }));
+    }
+
+    let total_ready = ready_tasks.len();
+    let total_completed = completed.len();
+
+    let output = json!({
+        "ready_tasks": ready_tasks,
+        "total_ready": total_ready,
+        "total_remaining": total_remaining,
+        "total_completed": total_completed,
     });
 
     println!("{}", serde_json::to_string_pretty(&output).unwrap());

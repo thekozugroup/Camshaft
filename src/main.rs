@@ -75,6 +75,12 @@ enum Commands {
         what: SprintCommands,
     },
 
+    /// Task-level operations (complete, reopen, status)
+    Task {
+        #[command(subcommand)]
+        what: TaskCommands,
+    },
+
     /// Validate plan integrity
     Validate,
 
@@ -83,6 +89,41 @@ enum Commands {
         /// Output file path (stdout if omitted)
         #[arg(long)]
         file: Option<String>,
+    },
+
+    /// Monte Carlo schedule risk analysis
+    RiskAnalysis {
+        /// Number of simulation iterations
+        #[arg(long, default_value_t = 10000)]
+        iterations: usize,
+
+        /// Confidence level for interval (e.g. 0.80 = 80%)
+        #[arg(long, default_value_t = 0.80)]
+        confidence: f64,
+    },
+
+    /// Import a plan from a Camshaft or GanttML JSON file
+    Import {
+        /// Input file path (relative, no '..' components)
+        #[arg(long)]
+        file: String,
+
+        /// Overwrite existing plan
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
+
+    /// Analyze schedule quality and health (GanttML-backed)
+    Analyze,
+
+    /// Earned Value Management metrics (PV, EV, AC, SPI, CPI, EAC, ...)
+    Evm,
+
+    /// Diff the current plan against a baseline plan file
+    Diff {
+        /// Baseline plan file path (relative, no '..' components)
+        #[arg(long)]
+        baseline: String,
     },
 }
 
@@ -213,6 +254,30 @@ enum QueryCommands {
 
     /// Suggest optimal execution order
     SuggestOrder,
+
+    /// List tasks that are ready to work on (all predecessors completed)
+    Ready,
+}
+
+#[derive(Subcommand)]
+enum TaskCommands {
+    /// Mark a task as completed
+    Complete {
+        /// Task ID
+        id: String,
+    },
+
+    /// Reopen a previously completed task
+    Reopen {
+        /// Task ID
+        id: String,
+    },
+
+    /// Show a single task's status
+    Status {
+        /// Task ID
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -279,6 +344,7 @@ fn main() {
                 commands::query::what_if(&task, duration)
             }
             QueryCommands::SuggestOrder => commands::query::suggest_order(),
+            QueryCommands::Ready => commands::query::ready(),
         },
         Commands::Sprint { what } => match what {
             SprintCommands::Plan { capacity, hours_per_day } => {
@@ -289,8 +355,22 @@ fn main() {
                 commands::sprint::overcommit_check(hours_per_day)
             }
         },
+        Commands::Task { what } => match what {
+            TaskCommands::Complete { id } => commands::task::complete(&id),
+            TaskCommands::Reopen { id } => commands::task::reopen(&id),
+            TaskCommands::Status { id } => commands::task::status(&id),
+        },
         Commands::Validate => commands::validate::run(),
         Commands::Export { file } => commands::export::run(file.as_deref()),
+        Commands::RiskAnalysis { iterations, confidence } => {
+            commands::risk::run(iterations, confidence)
+        }
+        Commands::Import { file, force } => {
+            commands::import::run(&file, force)
+        }
+        Commands::Analyze => commands::analyze::run(),
+        Commands::Evm => commands::evm::run(),
+        Commands::Diff { baseline } => commands::diff::run(&baseline),
     };
 
     if let Err(e) = result {

@@ -5,10 +5,18 @@ use serde_json::json;
 use crate::error::{CamshaftError, Result};
 use crate::plan::load_plan;
 
+/// A single validation issue with severity, message, and the tasks it affects.
+struct Issue {
+    severity: &'static str, // "error" | "warning" | "info"
+    message: String,
+    affected_tasks: Vec<String>,
+}
+
 pub fn run() -> Result<()> {
     let plan = load_plan()?;
     let project = &plan.project;
 
+    let mut issues: Vec<Issue> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
 
@@ -18,7 +26,13 @@ pub fn run() -> Result<()> {
 
     // 1. Empty plan check
     if task_count == 0 {
-        warnings.push("Plan has no activities".to_string());
+        let m = "Plan has no activities".to_string();
+        warnings.push(m.clone());
+        issues.push(Issue {
+            severity: "warning",
+            message: m,
+            affected_tasks: vec![],
+        });
     }
 
     // 2. Orphan check — tasks with no dependencies (neither predecessor nor successor)
@@ -30,7 +44,13 @@ pub fn run() -> Result<()> {
         }
         for id in &task_ids {
             if !referenced.contains(id) {
-                warnings.push(format!("Task '{}' has no dependencies (orphan)", id));
+                let m = format!("Task '{}' has no dependencies (orphan)", id);
+                warnings.push(m.clone());
+                issues.push(Issue {
+                    severity: "warning",
+                    message: m,
+                    affected_tasks: vec![id.to_string()],
+                });
             }
         }
     }
@@ -38,16 +58,28 @@ pub fn run() -> Result<()> {
     // 3. Missing reference check
     for dep in &project.dependencies {
         if !task_ids.contains(dep.predecessor_id.as_str()) {
-            errors.push(format!(
+            let m = format!(
                 "Dependency references nonexistent task: '{}'",
                 dep.predecessor_id
-            ));
+            );
+            errors.push(m.clone());
+            issues.push(Issue {
+                severity: "error",
+                message: m,
+                affected_tasks: vec![dep.predecessor_id.clone()],
+            });
         }
         if !task_ids.contains(dep.successor_id.as_str()) {
-            errors.push(format!(
+            let m = format!(
                 "Dependency references nonexistent task: '{}'",
                 dep.successor_id
-            ));
+            );
+            errors.push(m.clone());
+            issues.push(Issue {
+                severity: "error",
+                message: m,
+                affected_tasks: vec![dep.successor_id.clone()],
+            });
         }
     }
 
@@ -57,10 +89,19 @@ pub fn run() -> Result<()> {
         for dep in &project.dependencies {
             let pair = (dep.predecessor_id.as_str(), dep.successor_id.as_str());
             if !seen.insert(pair) {
-                warnings.push(format!(
+                let m = format!(
                     "Duplicate dependency: {} -> {}",
                     dep.predecessor_id, dep.successor_id
-                ));
+                );
+                warnings.push(m.clone());
+                issues.push(Issue {
+                    severity: "warning",
+                    message: m,
+                    affected_tasks: vec![
+                        dep.predecessor_id.clone(),
+                        dep.successor_id.clone(),
+                    ],
+                });
             }
         }
     }
@@ -108,24 +149,44 @@ pub fn run() -> Result<()> {
         }
 
         if visited < task_ids.len() {
-            let cycle_nodes: Vec<&str> = in_degree
+            let cycle_nodes: Vec<String> = in_degree
                 .iter()
                 .filter(|(_, &deg)| deg > 0)
-                .map(|(&node, _)| node)
+                .map(|(&node, _)| node.to_string())
                 .collect();
-            errors.push(format!(
+            let m = format!(
                 "Cycle detected involving tasks: {}",
                 cycle_nodes.join(", ")
-            ));
+            );
+            errors.push(m.clone());
+            issues.push(Issue {
+                severity: "error",
+                message: m,
+                affected_tasks: cycle_nodes,
+            });
         }
     }
 
     let valid = errors.is_empty();
+    let can_optimize = valid && task_count > 0;
+
+    let issues_json: Vec<serde_json::Value> = issues
+        .iter()
+        .map(|i| {
+            json!({
+                "severity": i.severity,
+                "message": i.message,
+                "affected_tasks": i.affected_tasks,
+            })
+        })
+        .collect();
 
     let output = json!({
         "valid": valid,
+        "issues": issues_json,
         "errors": errors,
         "warnings": warnings,
+        "can_optimize": can_optimize,
         "task_count": task_count,
         "dependency_count": dep_count
     });

@@ -434,3 +434,177 @@ fn test_export_rejects_path_traversal() {
         .failure()
         .stderr(predicate::str::contains("validation_failed"));
 }
+
+#[test]
+fn test_task_complete_and_ready() {
+    let dir = setup_test_dir();
+    camshaft().current_dir(dir.path())
+        .args(["init", "--name", "Task Complete Test", "--mode", "sprint"])
+        .assert().success();
+
+    // diamond: A -> B, A -> C, B -> D, C -> D
+    for (id, name, dur) in [("A", "A", "4"), ("B", "B", "6"), ("C", "C", "8"), ("D", "D", "3")] {
+        camshaft().current_dir(dir.path())
+            .args(["add", "task", id, "--name", name, "--duration", dur])
+            .assert().success();
+    }
+    for (from, to) in [("A", "B"), ("A", "C"), ("B", "D"), ("C", "D")] {
+        camshaft().current_dir(dir.path())
+            .args(["add", "dep", from, to])
+            .assert().success();
+    }
+
+    // Initially only A should be ready
+    camshaft().current_dir(dir.path())
+        .args(["query", "ready"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"id\": \"A\""));
+
+    // Complete A
+    camshaft().current_dir(dir.path())
+        .args(["task", "complete", "A"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"completed\""));
+
+    // Now B and C should be ready
+    camshaft().current_dir(dir.path())
+        .args(["query", "ready"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"id\": \"B\""))
+        .stdout(predicate::str::contains("\"id\": \"C\""));
+}
+
+#[test]
+fn test_optimize_includes_next_ready_tasks() {
+    let dir = setup_test_dir();
+    camshaft().current_dir(dir.path())
+        .args(["init", "--name", "Next Ready Test", "--mode", "sprint"])
+        .assert().success();
+    camshaft().current_dir(dir.path())
+        .args(["add", "task", "a", "--name", "A", "--duration", "3"])
+        .assert().success();
+    camshaft().current_dir(dir.path())
+        .args(["add", "task", "b", "--name", "B", "--duration", "5"])
+        .assert().success();
+    camshaft().current_dir(dir.path())
+        .args(["add", "dep", "a", "b"])
+        .assert().success();
+
+    camshaft().current_dir(dir.path())
+        .args(["optimize"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"next_ready_tasks\""))
+        .stdout(predicate::str::contains("\"execution_hint\""));
+}
+
+#[test]
+fn test_analyze() {
+    let dir = setup_test_dir();
+    camshaft().current_dir(dir.path())
+        .args(["init", "--name", "Analyze Test", "--mode", "sprint"])
+        .assert().success();
+    camshaft().current_dir(dir.path())
+        .args(["add", "task", "t1", "--name", "T1", "--duration", "5"])
+        .assert().success();
+
+    camshaft().current_dir(dir.path())
+        .args(["analyze"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"health_score\""));
+}
+
+#[test]
+fn test_risk_analysis() {
+    let dir = setup_test_dir();
+    camshaft().current_dir(dir.path())
+        .args(["init", "--name", "Risk Test", "--mode", "sprint"])
+        .assert().success();
+    for (id, dur) in [("a", "4"), ("b", "6")] {
+        camshaft().current_dir(dir.path())
+            .args(["add", "task", id, "--name", id, "--duration", dur])
+            .assert().success();
+    }
+    camshaft().current_dir(dir.path())
+        .args(["add", "dep", "a", "b"])
+        .assert().success();
+
+    camshaft().current_dir(dir.path())
+        .args(["risk-analysis", "--iterations", "500"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"duration_stats\""))
+        .stdout(predicate::str::contains("\"criticality_index\""));
+}
+
+#[test]
+fn test_evm() {
+    let dir = setup_test_dir();
+    camshaft().current_dir(dir.path())
+        .args(["init", "--name", "EVM Test", "--mode", "sprint"])
+        .assert().success();
+    camshaft().current_dir(dir.path())
+        .args(["add", "task", "t1", "--name", "T1", "--duration", "5"])
+        .assert().success();
+
+    camshaft().current_dir(dir.path())
+        .args(["evm"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"bac\""))
+        .stdout(predicate::str::contains("\"spi\""));
+}
+
+#[test]
+fn test_diff() {
+    let dir = setup_test_dir();
+    camshaft().current_dir(dir.path())
+        .args(["init", "--name", "Diff Test", "--mode", "sprint"])
+        .assert().success();
+    camshaft().current_dir(dir.path())
+        .args(["add", "task", "a", "--name", "A", "--duration", "3"])
+        .assert().success();
+
+    // Export baseline
+    camshaft().current_dir(dir.path())
+        .args(["export", "--file", "baseline.json"])
+        .assert().success();
+
+    // Modify plan
+    camshaft().current_dir(dir.path())
+        .args(["add", "task", "b", "--name", "B", "--duration", "5"])
+        .assert().success();
+
+    // Diff against baseline
+    camshaft().current_dir(dir.path())
+        .args(["diff", "--baseline", "baseline.json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"tasks_added\""));
+}
+
+#[test]
+fn test_import_roundtrip() {
+    let dir = setup_test_dir();
+    camshaft().current_dir(dir.path())
+        .args(["init", "--name", "Roundtrip", "--mode", "sprint"])
+        .assert().success();
+    camshaft().current_dir(dir.path())
+        .args(["add", "task", "x", "--name", "X", "--duration", "3"])
+        .assert().success();
+    camshaft().current_dir(dir.path())
+        .args(["export", "--file", "plan-copy.json"])
+        .assert().success();
+
+    // Re-import with force
+    camshaft().current_dir(dir.path())
+        .args(["import", "--file", "plan-copy.json", "--force"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"imported\""))
+        .stdout(predicate::str::contains("\"task_count\": 1"));
+}
