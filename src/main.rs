@@ -61,6 +61,11 @@ enum Commands {
         /// Apply crashing (compress critical path durations)
         #[arg(long, default_value_t = false)]
         crash: bool,
+
+        /// Write optimized plan back to .camshaft/plan.json (destructive).
+        /// Without this flag the command is read-only and only reports analysis.
+        #[arg(long, default_value_t = false)]
+        apply: bool,
     },
 
     /// Query plan state without modifying
@@ -124,6 +129,24 @@ enum Commands {
         /// Baseline plan file path (relative, no '..' components)
         #[arg(long)]
         baseline: String,
+    },
+
+    /// Estimate task durations from git history
+    Velocity {
+        /// Repo path (relative, no '..' components). Defaults to current directory.
+        #[arg(long)]
+        repo: Option<String>,
+
+        /// Analysis window in days
+        #[arg(long, default_value_t = 90)]
+        days: u32,
+    },
+
+    /// Detect and resolve resource over-allocation (resource leveling)
+    LevelResources {
+        /// Persist the leveled plan (otherwise analysis-only)
+        #[arg(long, default_value_t = false)]
+        apply: bool,
     },
 }
 
@@ -332,8 +355,8 @@ fn main() {
             RemoveCommands::Task { id } => commands::remove::remove_task(&id),
             RemoveCommands::Dep { from, to } => commands::remove::remove_dep(&from, &to),
         },
-        Commands::Optimize { objective, fast_track, crash } => {
-            commands::optimize::run(&objective, fast_track, crash)
+        Commands::Optimize { objective, fast_track, crash, apply } => {
+            commands::optimize::run(&objective, fast_track, crash, apply)
         }
         Commands::Query { what } => match what {
             QueryCommands::CriticalPath => commands::query::critical_path(),
@@ -371,6 +394,10 @@ fn main() {
         Commands::Analyze => commands::analyze::run(),
         Commands::Evm => commands::evm::run(),
         Commands::Diff { baseline } => commands::diff::run(&baseline),
+        Commands::Velocity { repo, days } => {
+            commands::velocity::run(repo.as_deref(), days)
+        }
+        Commands::LevelResources { apply } => commands::level::run(apply),
     };
 
     if let Err(e) = result {

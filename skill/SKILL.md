@@ -43,11 +43,27 @@ For short-term work measured in **hours**. Optimizes for parallel subagent dispa
 
 Use when: implementing a feature, fixing a set of bugs, executing a technical plan.
 
+**Task granularity**: aim for 1-4 hours per task. Smaller = too much overhead, larger = harder to parallelize and track. Break anything over 6h into sub-tasks.
+
 ### Roadmap Mode (Project Planning)
 
 For long-term work measured in **days**. Optimizes for critical path and timeline.
 
 Use when: planning a multi-week project, creating a release plan, scheduling milestones.
+
+**Task granularity**: aim for 1-5 days per task. Use milestones (`add milestone`) to mark deliverable boundaries. Break anything over 10d into sub-tasks.
+
+### Bulk Operations
+
+When adding many tasks/deps, suppress per-command stdout by redirecting:
+
+```bash
+for t in t1 t2 t3 t4; do
+  camshaft add task "$t" --name "Task $t" --duration 2 > /dev/null
+done
+```
+
+Verify with `camshaft validate` or `camshaft optimize` at the end.
 
 ## CLI Reference
 

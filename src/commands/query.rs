@@ -107,23 +107,46 @@ pub fn status() -> Result<()> {
 pub fn bottlenecks() -> Result<()> {
     let (plan, cpm) = load_and_calculate()?;
 
-    let bottleneck_list: Vec<serde_json::Value> = cpm
+    // Collect bottlenecks (zero-float tasks) with their duration + successor count (fan-out).
+    let mut fanout: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for dep in &plan.project.dependencies {
+        *fanout.entry(dep.predecessor_id.as_str()).or_insert(0) += 1;
+    }
+
+    let mut items: Vec<(String, String, f64, usize)> = cpm
         .total_float
         .iter()
         .filter(|(_, &f)| f == 0.0)
         .filter_map(|(id, _)| {
             plan.project.activities.get(id).map(|act| {
-                json!({
-                    "id": id,
-                    "name": act.name,
-                    "duration": act.original_duration.days,
-                })
+                let fo = *fanout.get(id.as_str()).unwrap_or(&0);
+                (id.clone(), act.name.clone(), act.original_duration.days, fo)
+            })
+        })
+        .collect();
+
+    // Sort descending by (duration, fan-out) — longest + most-branching first.
+    items.sort_by(|a, b| {
+        b.2.partial_cmp(&a.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.3.cmp(&a.3))
+    });
+
+    let bottleneck_list: Vec<serde_json::Value> = items
+        .into_iter()
+        .map(|(id, name, duration, fan_out)| {
+            json!({
+                "id": id,
+                "name": name,
+                "duration": duration,
+                "fan_out": fan_out,
             })
         })
         .collect();
 
     let output = json!({
         "bottlenecks": bottleneck_list,
+        "ranking": "sorted by duration desc, then fan-out desc (longest + most-branching first)",
     });
 
     println!("{}", serde_json::to_string_pretty(&output).unwrap());
@@ -178,6 +201,19 @@ pub fn what_if(task_id: &str, new_duration: f64) -> Result<()> {
 
     let impact = cpm_after.project_duration - cpm_before.project_duration;
 
+    // Detect which tasks had their early_start shift between before/after.
+    let mut affected_tasks: Vec<String> = Vec::new();
+    for (id, (before_es, _)) in &cpm_before.early_dates {
+        if let Some((after_es, _)) = cpm_after.early_dates.get(id) {
+            if (before_es - after_es).abs() > f64::EPSILON {
+                affected_tasks.push(id.clone());
+            }
+        }
+    }
+    affected_tasks.sort();
+
+    let critical_path_changed = cpm_before.critical_path != cpm_after.critical_path;
+
     let output = json!({
         "task": task_id,
         "original_duration": original_duration,
@@ -191,6 +227,8 @@ pub fn what_if(task_id: &str, new_duration: f64) -> Result<()> {
             "critical_path": cpm_after.critical_path,
         },
         "impact": impact,
+        "affected_tasks": affected_tasks,
+        "critical_path_changed": critical_path_changed,
     });
 
     println!("{}", serde_json::to_string_pretty(&output).unwrap());
@@ -237,7 +275,9 @@ pub fn ready() -> Result<()> {
             continue;
         }
 
-        let priority_hint = if critical_set.contains(id.as_str()) {
+        // Schedule priority = derived from critical path membership (for dispatch order).
+        // Does NOT overwrite user-assigned priority — they are separate concerns.
+        let schedule_priority = if critical_set.contains(id.as_str()) {
             "critical"
         } else {
             "medium"
@@ -247,7 +287,8 @@ pub fn ready() -> Result<()> {
             "id": id,
             "name": act.name,
             "duration": act.original_duration.days,
-            "priority_hint": priority_hint,
+            "schedule_priority": schedule_priority,
+            "on_critical_path": critical_set.contains(id.as_str()),
         }));
     }
 

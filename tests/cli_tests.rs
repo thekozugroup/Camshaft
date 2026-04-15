@@ -608,3 +608,126 @@ fn test_import_roundtrip() {
         .stdout(predicate::str::contains("\"status\": \"imported\""))
         .stdout(predicate::str::contains("\"task_count\": 1"));
 }
+
+#[test]
+fn test_optimize_fast_track_dry_run() {
+    let dir = setup_test_dir();
+    camshaft().current_dir(dir.path())
+        .args(["init", "--name", "FT Test", "--mode", "sprint"])
+        .assert().success();
+    for (id, dur) in [("a", "4"), ("b", "6"), ("c", "3")] {
+        camshaft().current_dir(dir.path())
+            .args(["add", "task", id, "--name", id, "--duration", dur])
+            .assert().success();
+    }
+    camshaft().current_dir(dir.path())
+        .args(["add", "dep", "a", "b"])
+        .assert().success();
+    camshaft().current_dir(dir.path())
+        .args(["add", "dep", "b", "c"])
+        .assert().success();
+
+    // Dry-run: should not mutate plan
+    camshaft().current_dir(dir.path())
+        .args(["optimize", "--fast-track"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"optimization_moves\""));
+}
+
+#[test]
+fn test_level_resources_no_conflicts() {
+    let dir = setup_test_dir();
+    camshaft().current_dir(dir.path())
+        .args(["init", "--name", "Level Test", "--mode", "sprint"])
+        .assert().success();
+    camshaft().current_dir(dir.path())
+        .args(["add", "task", "t1", "--name", "T1", "--duration", "3"])
+        .assert().success();
+
+    // No resources — should return no_conflicts status
+    camshaft().current_dir(dir.path())
+        .args(["level-resources"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"no_conflicts\""));
+}
+
+#[test]
+fn test_velocity_not_a_repo() {
+    let dir = setup_test_dir();
+    // Not a git repo — should error cleanly
+    camshaft().current_dir(dir.path())
+        .args(["velocity"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("validation_failed"));
+}
+
+#[test]
+fn test_bottlenecks_sorted() {
+    let dir = setup_test_dir();
+    camshaft().current_dir(dir.path())
+        .args(["init", "--name", "Bottleneck Sort", "--mode", "sprint"])
+        .assert().success();
+    // 3 critical tasks with different durations
+    for (id, dur) in [("short", "2"), ("long", "10"), ("medium", "5")] {
+        camshaft().current_dir(dir.path())
+            .args(["add", "task", id, "--name", id, "--duration", dur])
+            .assert().success();
+    }
+    camshaft().current_dir(dir.path())
+        .args(["add", "dep", "short", "medium"])
+        .assert().success();
+    camshaft().current_dir(dir.path())
+        .args(["add", "dep", "medium", "long"])
+        .assert().success();
+
+    camshaft().current_dir(dir.path())
+        .args(["query", "bottlenecks"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ranking\""))
+        .stdout(predicate::str::contains("\"fan_out\""));
+}
+
+#[test]
+fn test_whatif_has_affected_tasks_and_cp_changed() {
+    let dir = setup_test_dir();
+    camshaft().current_dir(dir.path())
+        .args(["init", "--name", "WhatIf Fields", "--mode", "sprint"])
+        .assert().success();
+    for (id, dur) in [("a", "4"), ("b", "2")] {
+        camshaft().current_dir(dir.path())
+            .args(["add", "task", id, "--name", id, "--duration", dur])
+            .assert().success();
+    }
+    camshaft().current_dir(dir.path())
+        .args(["add", "dep", "a", "b"])
+        .assert().success();
+
+    camshaft().current_dir(dir.path())
+        .args(["query", "what-if", "a", "--duration", "10"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"affected_tasks\""))
+        .stdout(predicate::str::contains("\"critical_path_changed\""));
+}
+
+#[test]
+fn test_ready_has_schedule_priority_and_on_critical_path() {
+    let dir = setup_test_dir();
+    camshaft().current_dir(dir.path())
+        .args(["init", "--name", "Ready Schema", "--mode", "sprint"])
+        .assert().success();
+    camshaft().current_dir(dir.path())
+        .args(["add", "task", "a", "--name", "A", "--duration", "3"])
+        .assert().success();
+
+    camshaft().current_dir(dir.path())
+        .args(["query", "ready"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"schedule_priority\""))
+        .stdout(predicate::str::contains("\"on_critical_path\""));
+}
