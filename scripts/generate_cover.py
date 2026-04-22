@@ -1,8 +1,9 @@
-"""Abstract, minimal hero visual for Camshaft.
+"""Camshaft hero cover — a metal camshaft entering the atmosphere.
 
-Kimi-blog style: near-black background, single luminous composition,
-iridescent rim lighting, massive negative space. The subject is a set of
-flowing horizontal light streaks — a Gantt chart reduced to pure essence.
+Kimi-blog aesthetic: near-black backdrop, single luminous subject, iridescent
+rim lighting, heavy motion blur. The subject is a literal automotive camshaft
+(shaft + cam lobes) streaking horizontally with plasma heat on the leading edge
+and long motion-blur trails behind.
 """
 from __future__ import annotations
 
@@ -13,152 +14,295 @@ from PIL import Image, ImageDraw, ImageFilter
 WIDTH, HEIGHT = 1920, 1080
 OUT_PATH = "/Users/michaelwong/Developer/Camshaft/docs/screenshot.png"
 
-BG = (4, 4, 8)
+BG = (3, 3, 6)
 
-# Iridescent dispersion palette — soft jewel tones, low saturation
-COOL = (120, 170, 255)    # soft cyan-blue
-VIOLET = (170, 140, 255)  # periwinkle violet
-MAGENTA = (230, 140, 200) # soft pink
-AMBER = (255, 180, 120)   # warm amber
-WARM = (255, 140, 130)    # soft coral
+# Rim-light palette — cool blue/violet on top, warm amber/coral on bottom
+COOL = (110, 165, 255)
+VIOLET = (170, 140, 255)
+MAGENTA = (230, 140, 200)
+AMBER = (255, 170, 110)
+WARM = (255, 120, 90)
+PLASMA = (255, 220, 180)  # near-white plasma core
 
-random.seed(11)
+# Metal palette
+STEEL_DARK = (40, 44, 54)
+STEEL_MID = (110, 118, 132)
+STEEL_HIGHLIGHT = (210, 215, 225)
+
+random.seed(5)
 
 
 def solid_bg() -> Image.Image:
-    """Near-black background with a very subtle center vignette."""
-    img = Image.new("RGB", (WIDTH, HEIGHT), BG)
-    # Extremely subtle radial lift near center so pure black feels alive
-    lift = Image.new("L", (WIDTH, HEIGHT), 0)
-    d = ImageDraw.Draw(lift)
+    img = Image.new("RGB", (WIDTH, HEIGHT), BG).convert("RGBA")
+
+    # Very soft warm atmospheric glow near leading edge (right side)
+    glow = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    d = ImageDraw.Draw(glow)
     d.ellipse(
-        [WIDTH // 2 - 1100, HEIGHT // 2 - 700, WIDTH // 2 + 1100, HEIGHT // 2 + 700],
-        fill=18,
+        [WIDTH // 2 + 100, HEIGHT // 2 - 500, WIDTH + 400, HEIGHT // 2 + 500],
+        fill=(*AMBER, 40),
     )
-    lift = lift.filter(ImageFilter.GaussianBlur(radius=260))
-    base = img.convert("RGBA")
-    tint = Image.new("RGBA", (WIDTH, HEIGHT), (40, 44, 80, 0))
-    tint.putalpha(lift)
-    base.alpha_composite(tint)
-    return base
+    glow = glow.filter(ImageFilter.GaussianBlur(radius=220))
+    img.alpha_composite(glow)
 
-
-def streak(width: int, height: int, color_stops: list[tuple[float, tuple[int, int, int]]]) -> Image.Image:
-    """A single glowing horizontal streak with horizontal gradient + soft rounded ends + bloom."""
-    # Core gradient band
-    core = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    px = core.load()
-    stops = sorted(color_stops)
-    for x in range(width):
-        t = x / max(width - 1, 1)
-        # Find bracketing stops
-        c = stops[0][1]
-        for i in range(len(stops) - 1):
-            p0, c0 = stops[i]
-            p1, c1 = stops[i + 1]
-            if p0 <= t <= p1:
-                span = max(p1 - p0, 1e-6)
-                k = (t - p0) / span
-                c = (
-                    int(c0[0] + (c1[0] - c0[0]) * k),
-                    int(c0[1] + (c1[1] - c0[1]) * k),
-                    int(c0[2] + (c1[2] - c0[2]) * k),
-                )
-                break
-
-        # Vertical alpha profile — soft bell so the streak feathers into the void
-        for y in range(height):
-            ny = (y - (height - 1) / 2) / (height / 2)
-            # Feathered profile: bell shape to the power of 1.5 — softer edges
-            vert = max(0.0, 1.0 - abs(ny) ** 1.5)
-            # Horizontal end-feather — fade first/last 8 percent
-            if t < 0.08:
-                end = t / 0.08
-            elif t > 0.92:
-                end = (1.0 - t) / 0.08
-            else:
-                end = 1.0
-            alpha = int(255 * vert * end)
-            if alpha <= 0:
-                continue
-            px[x, y] = (c[0], c[1], c[2], alpha)
-    return core
-
-
-def paste_streak_with_bloom(canvas: Image.Image, streak_img: Image.Image, x: int, y: int, bloom_color: tuple[int, int, int]) -> None:
-    """Paste a streak plus a wide soft color bloom behind it."""
-    w, h = streak_img.size
-
-    # Wide bloom — blurred color halo
-    halo_w, halo_h = w + 500, h + 320
-    halo = Image.new("RGBA", (halo_w, halo_h), (0, 0, 0, 0))
-    d = ImageDraw.Draw(halo)
-    d.ellipse(
-        [60, halo_h // 2 - h, halo_w - 60, halo_h // 2 + h],
-        fill=(*bloom_color, 60),
-    )
-    halo = halo.filter(ImageFilter.GaussianBlur(radius=90))
-    canvas.alpha_composite(halo, (x - (halo_w - w) // 2, y - (halo_h - h) // 2))
-
-    # Medium bloom — tighter, brighter
-    mid_w, mid_h = w + 200, h + 120
-    mid = Image.new("RGBA", (mid_w, mid_h), (0, 0, 0, 0))
-    d2 = ImageDraw.Draw(mid)
-    d2.ellipse(
-        [40, mid_h // 2 - h // 2, mid_w - 40, mid_h // 2 + h // 2],
-        fill=(*bloom_color, 95),
-    )
-    mid = mid.filter(ImageFilter.GaussianBlur(radius=38))
-    canvas.alpha_composite(mid, (x - (mid_w - w) // 2, y - (mid_h - h) // 2))
-
-    # The streak itself
-    canvas.alpha_composite(streak_img, (x, y))
-
-    # Subtle specular sheen on top edge
-    sheen = Image.new("RGBA", (w, h // 2), (0, 0, 0, 0))
-    sd = ImageDraw.Draw(sheen)
-    sd.rectangle([0, 0, w, h // 2], fill=(255, 255, 255, 22))
-    mask = Image.new("L", (w, h // 2), 0)
-    md = ImageDraw.Draw(mask)
-    md.ellipse([-80, 0, w + 80, h], fill=240)
-    sheen.putalpha(mask)
-    sheen = sheen.filter(ImageFilter.GaussianBlur(radius=14))
-    canvas.alpha_composite(sheen, (x, y))
-
-
-def chromatic_rim(canvas: Image.Image, cx: int, cy: int, length: int, thickness: int) -> None:
-    """Paint a horizontal rim of chromatic dispersion — cool side and warm side bleed."""
-    # Cool side — top
-    cool = Image.new("RGBA", (length + 400, 240), (0, 0, 0, 0))
+    # Cool haze on trailing (left) side
+    cool = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
     d = ImageDraw.Draw(cool)
-    d.ellipse([0, 40, length + 400, 200], fill=(*COOL, 55))
-    cool = cool.filter(ImageFilter.GaussianBlur(radius=80))
-    canvas.alpha_composite(cool, (cx - (length + 400) // 2, cy - 220))
+    d.ellipse(
+        [-400, HEIGHT // 2 - 450, WIDTH // 2 - 100, HEIGHT // 2 + 450],
+        fill=(*COOL, 22),
+    )
+    cool = cool.filter(ImageFilter.GaussianBlur(radius=220))
+    img.alpha_composite(cool)
 
-    # Warm side — bottom
-    warm = Image.new("RGBA", (length + 400, 240), (0, 0, 0, 0))
+    return img
+
+
+def draw_camshaft_silhouette(size: tuple[int, int]) -> Image.Image:
+    """Draw a clean camshaft silhouette mask — pure black subject on transparent.
+
+    Geometry: horizontal shaft with rounded ends + 3 teardrop cam lobes
+    alternating up/down along its length. This is the MASK — rim lighting
+    is added separately.
+    """
+    w, h = size
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    cy = h // 2
+    shaft_radius = h // 5
+    shaft_top = cy - shaft_radius
+    shaft_bot = cy + shaft_radius
+
+    draw = ImageDraw.Draw(layer)
+
+    # Main shaft: rounded rectangle
+    draw.rounded_rectangle(
+        [shaft_radius, shaft_top, w - shaft_radius, shaft_bot],
+        radius=shaft_radius,
+        fill=(10, 10, 14, 255),
+    )
+
+    # 3 teardrop cam lobes — up, down, up
+    lobe_positions = [(0.22, -1), (0.52, 1), (0.82, -1)]
+    for p, direction in lobe_positions:
+        cx_px = int(w * p)
+        lobe_w = int(h * 0.42)
+        lobe_h = int(h * 0.85)
+
+        if direction == -1:  # up
+            lobe_box = [cx_px - lobe_w, cy - lobe_h, cx_px + lobe_w, cy + int(h * 0.05)]
+        else:  # down
+            lobe_box = [cx_px - lobe_w, cy - int(h * 0.05), cx_px + lobe_w, cy + lobe_h]
+
+        draw.ellipse(lobe_box, fill=(10, 10, 14, 255))
+
+    return layer
+
+
+def add_rim_light(mask: Image.Image, color_leading: tuple[int, int, int], color_cool: tuple[int, int, int]) -> Image.Image:
+    """Given a dark silhouette, add bright rim lighting on all edges.
+
+    Leading edge (right) gets hot plasma color, trailing (left) and top get
+    cool color. Rim is generated by expanding the silhouette, blurring, and
+    subtracting the original.
+    """
+    w, h = mask.size
+    alpha = mask.split()[3]
+
+    # Full outer glow (halo around silhouette) — cool
+    outer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    outer_px = outer.load()
+    for y in range(h):
+        for x in range(w):
+            pass  # placeholder — we use alpha instead below
+    outer = Image.new("RGBA", (w, h), (*color_cool, 0))
+    outer.putalpha(alpha)
+    # Blur the alpha to create glow
+    glow_alpha = alpha.filter(ImageFilter.GaussianBlur(radius=18))
+    outer.putalpha(Image.eval(glow_alpha, lambda v: min(v * 2, 255)))
+
+    # Leading-edge hot rim — skew the color toward amber/warm on the right
+    hot = Image.new("RGBA", (w, h), (*color_leading, 0))
+    hot_alpha = Image.eval(alpha, lambda v: v)
+    # Create a horizontal gradient mask that's strong on the right half only
+    grad = Image.new("L", (w, h), 0)
+    gpx = grad.load()
+    for x in range(w):
+        t = x / (w - 1)
+        val = int(255 * max(0.0, (t - 0.35) / 0.65) ** 1.5)
+        for y in range(h):
+            gpx[x, y] = val
+    # Blur alpha then mask by horizontal gradient
+    hot_glow = alpha.filter(ImageFilter.GaussianBlur(radius=14))
+    combined = Image.eval(hot_glow, lambda v: v)
+    combined = Image.merge("L", (combined,)) if combined.mode != "L" else combined
+    # Multiply by gradient
+    final_alpha = Image.new("L", (w, h), 0)
+    fpx = final_alpha.load()
+    hg = hot_glow.load()
+    for x in range(w):
+        for y in range(h):
+            fpx[x, y] = (hg[x, y] * gpx[x, y]) // 255
+    hot.putalpha(final_alpha)
+
+    # Combine outer + hot
+    result = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    result.alpha_composite(outer)
+    result.alpha_composite(hot)
+
+    # Subtract the interior (keep only the rim, not the fill)
+    # Erode the alpha by blurring less, then subtract
+    interior = alpha.filter(ImageFilter.GaussianBlur(radius=0))  # crisp
+    erode_mask = Image.new("L", (w, h), 0)
+    erode_px = erode_mask.load()
+    alpha_px = alpha.load()
+    for x in range(w):
+        for y in range(h):
+            # Keep rim: if alpha is edge (not fully inside nor fully outside)
+            erode_px[x, y] = alpha_px[x, y]
+    # Multiplicative: keep glow only where silhouette alpha is LOW
+    keep_mask = Image.eval(alpha, lambda v: 255 - v)
+    result_alpha = result.split()[3]
+    masked = Image.new("L", (w, h), 0)
+    mpx = masked.load()
+    rpx = result_alpha.load()
+    kpx = keep_mask.load()
+    for x in range(w):
+        for y in range(h):
+            mpx[x, y] = (rpx[x, y] * kpx[x, y]) // 255
+    result.putalpha(masked)
+
+    return result
+
+
+def apply_motion_blur(img: Image.Image, length: int, samples: int = 18) -> Image.Image:
+    """Approximate horizontal motion blur by averaging horizontally-offset copies."""
+    w, h = img.size
+    accum = Image.new("RGBA", (w + length * 2, h), (0, 0, 0, 0))
+    for i in range(samples):
+        t = i / (samples - 1)
+        offset = int((t - 0.5) * length)
+        frame = img.copy()
+        # Fade the extremes so head stays sharp, tail dissolves
+        frame.putalpha(
+            Image.eval(frame.split()[3], lambda v: int(v * (1.0 / samples) * 2.0))
+        )
+        accum.alpha_composite(frame, (length + offset, 0))
+    return accum
+
+
+def streaking_trails(canvas: Image.Image, cx: int, cy: int, width: int, height: int) -> None:
+    """Long horizontal plasma trails behind the subject, fading into the void."""
+    trail = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(trail)
+    # Multiple overlapping horizontal streaks at different y offsets
+    offsets = [-60, -30, -12, 0, 14, 32, 58]
+    colors = [COOL, VIOLET, MAGENTA, PLASMA, AMBER, WARM, (255, 90, 70)]
+    for dy, color in zip(offsets, colors):
+        # Trail goes LEFT from leading edge
+        trail_w = width * 3
+        trail_h = 6
+        start_x = cx - trail_w
+        end_x = cx
+        y = cy + dy
+        # Gradient alpha along length — bright at head, fading at tail
+        layer = Image.new("RGBA", (trail_w, trail_h * 12), (0, 0, 0, 0))
+        lpx = layer.load()
+        for lx in range(trail_w):
+            t = lx / max(trail_w - 1, 1)  # 0 at far tail, 1 at head
+            head_t = t ** 2.5  # concentrate near head
+            for ly in range(trail_h * 12):
+                ny = (ly - trail_h * 6) / (trail_h * 6)
+                vert = max(0.0, 1.0 - abs(ny) ** 1.4)
+                alpha = int(255 * head_t * vert * 0.9)
+                if alpha <= 0:
+                    continue
+                lpx[lx, ly] = (color[0], color[1], color[2], alpha)
+        blurred = layer.filter(ImageFilter.GaussianBlur(radius=10))
+        canvas.alpha_composite(blurred, (start_x, y - trail_h * 6))
+
+    canvas.alpha_composite(trail)
+
+
+def plasma_leading_edge(canvas: Image.Image, cx: int, cy: int, size: int) -> None:
+    """Bright plasma heat shield on the leading (right) edge of the camshaft."""
+    # Layered glows — plasma white core, amber mid, coral outer
+    layers = [
+        (size * 3, (255, 90, 70, 55)),
+        (size * 2, (255, 160, 100, 75)),
+        (size + size // 2, (255, 220, 180, 110)),
+        (size, (255, 255, 240, 180)),
+    ]
+    for r, color in layers:
+        g = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        gd = ImageDraw.Draw(g)
+        gd.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
+        g = g.filter(ImageFilter.GaussianBlur(radius=r // 5))
+        canvas.alpha_composite(g)
+
+    # Core white-hot spot
+    core = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    cd = ImageDraw.Draw(core)
+    cd.ellipse([cx - 26, cy - 26, cx + 26, cy + 26], fill=(255, 255, 250, 255))
+    core = core.filter(ImageFilter.GaussianBlur(radius=6))
+    canvas.alpha_composite(core)
+
+
+def spark_debris(canvas: Image.Image, cx: int, cy: int, count: int = 140) -> None:
+    """Hot spark particles streaking behind the camshaft."""
+    layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    for _ in range(count):
+        # Spawn behind the leading edge, biased toward center axis
+        dx = random.randint(-int(WIDTH * 0.55), 0)
+        dy = int(random.gauss(0, 70))
+        x = cx + dx
+        y = cy + dy
+        # Streak length grows with distance from head (older sparks are longer + dimmer)
+        age = abs(dx) / (WIDTH * 0.55)
+        length = int(20 + age * 160)
+        alpha = int(220 * (1 - age) ** 1.2)
+        if alpha <= 0:
+            continue
+        color = random.choice([PLASMA, AMBER, WARM, (255, 230, 190)])
+        d.line([(x, y), (x + length, y)], fill=(*color, alpha), width=1)
+    layer = layer.filter(ImageFilter.GaussianBlur(radius=0.6))
+    canvas.alpha_composite(layer)
+
+
+def chromatic_rim(canvas: Image.Image, cx: int, cy: int, length: int) -> None:
+    """Horizontal chromatic dispersion band under the subject."""
+    cool = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(cool)
+    d.ellipse(
+        [cx - length // 2, cy - 160, cx + length // 2, cy - 20],
+        fill=(*COOL, 55),
+    )
+    cool = cool.filter(ImageFilter.GaussianBlur(radius=90))
+    canvas.alpha_composite(cool)
+
+    warm = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(warm)
-    d.ellipse([0, 40, length + 400, 200], fill=(*WARM, 45))
-    warm = warm.filter(ImageFilter.GaussianBlur(radius=80))
-    canvas.alpha_composite(warm, (cx - (length + 400) // 2, cy - 20))
+    d.ellipse(
+        [cx - length // 2, cy + 20, cx + length // 2, cy + 160],
+        fill=(*WARM, 50),
+    )
+    warm = warm.filter(ImageFilter.GaussianBlur(radius=90))
+    canvas.alpha_composite(warm)
 
 
-def particle_dust(canvas: Image.Image, count: int = 70) -> None:
-    """Minimal star/particle dust."""
+def particle_dust(canvas: Image.Image, count: int = 45) -> None:
     layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     for _ in range(count):
         x = random.randint(0, WIDTH)
         y = random.randint(0, HEIGHT)
-        r = random.choice([1, 1, 1, 2])
-        alpha = random.randint(20, 90)
+        r = random.choice([1, 1, 2])
+        alpha = random.randint(15, 70)
         d.ellipse([x - r, y - r, x + r, y + r], fill=(240, 240, 255, alpha))
-    layer = layer.filter(ImageFilter.GaussianBlur(radius=0.4))
-    canvas.alpha_composite(layer)
+    canvas.alpha_composite(layer.filter(ImageFilter.GaussianBlur(radius=0.4)))
 
 
-def film_grain(canvas: Image.Image, amount: int = 4200) -> None:
-    """A touch of monochrome grain so it reads as photographic render, not digital."""
+def film_grain(canvas: Image.Image, amount: int = 5500) -> None:
     noise = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     px = noise.load()
     for _ in range(amount):
@@ -173,65 +317,90 @@ def film_grain(canvas: Image.Image, amount: int = 4200) -> None:
 def main() -> None:
     canvas = solid_bg()
 
-    # Composition: 4 streaks, staggered horizontally and vertically.
-    # Each has its own iridescent gradient. Together they feel like a
-    # long-exposure photograph of parallel scheduling beams.
-    center_y = HEIGHT // 2
-    streak_height = 18  # thin, minimal
-    streaks = [
-        # (start_x_frac, end_x_frac, y_offset, gradient, bloom)
-        (0.12, 0.58, -220, [(0.0, COOL), (0.5, VIOLET), (1.0, MAGENTA)], VIOLET),
-        (0.28, 0.82, -70, [(0.0, VIOLET), (0.5, MAGENTA), (1.0, AMBER)], MAGENTA),
-        (0.18, 0.72, 80, [(0.0, COOL), (0.5, COOL), (1.0, VIOLET)], COOL),
-        (0.40, 0.88, 230, [(0.0, MAGENTA), (0.5, WARM), (1.0, AMBER)], WARM),
-    ]
+    # Composition:
+    # - Camshaft occupies middle-right horizontally, slight vertical center
+    # - Leading edge (right) has plasma heat shield
+    # - Trails + sparks extend left across most of the canvas
+    shaft_w = 720
+    shaft_h = 160
+    shaft_x = WIDTH // 2 - 120  # shifted slightly right-of-center
+    shaft_y = HEIGHT // 2 - shaft_h // 2
+    shaft_center_x = shaft_x + shaft_w // 2
+    shaft_center_y = shaft_y + shaft_h // 2
+    leading_edge_x = shaft_x + shaft_w
+    leading_edge_y = shaft_center_y
 
-    # Background atmospheric rim — one big soft horizontal light band
-    rim_layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    d = ImageDraw.Draw(rim_layer)
-    d.ellipse(
-        [WIDTH // 2 - 900, center_y - 80, WIDTH // 2 + 900, center_y + 80],
-        fill=(*COOL, 35),
-    )
-    d.ellipse(
-        [WIDTH // 2 - 700, center_y + 80, WIDTH // 2 + 700, center_y + 220],
-        fill=(*WARM, 28),
-    )
-    rim_layer = rim_layer.filter(ImageFilter.GaussianBlur(radius=140))
-    canvas.alpha_composite(rim_layer)
+    # 1. Chromatic rim under/above shaft — full-canvas width for drama
+    chromatic_rim(canvas, shaft_center_x, shaft_center_y, length=2200)
 
-    # Paint streaks back-to-front
-    for sx, ex, dy, grad, bloom in streaks:
-        x = int(WIDTH * sx)
-        end = int(WIDTH * ex)
-        w = end - x
-        h = streak_height
-        s = streak(w, h, grad)
-        paste_streak_with_bloom(canvas, s, x, center_y + dy - h // 2, bloom)
+    # 2. Long horizontal streaking trails (behind, pointing left)
+    streaking_trails(canvas, leading_edge_x, shaft_center_y, shaft_w, shaft_h)
 
-    # Chromatic rim sweep across the whole composition
-    chromatic_rim(canvas, WIDTH // 2, center_y, length=1500, thickness=300)
+    # 3. Spark debris
+    spark_debris(canvas, leading_edge_x, shaft_center_y, count=160)
 
-    # A single bright specular highlight disk — echo of rim-lit sphere
-    highlight = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    d = ImageDraw.Draw(highlight)
-    d.ellipse(
-        [WIDTH // 2 + 200, center_y - 40, WIDTH // 2 + 340, center_y + 40],
-        fill=(255, 245, 230, 80),
-    )
-    highlight = highlight.filter(ImageFilter.GaussianBlur(radius=40))
-    canvas.alpha_composite(highlight)
+    # 4. Camshaft SILHOUETTE + rim lighting (dark subject, glowing edges)
+    # Render slightly taller canvas so rim has room to bloom
+    pad = 80
+    cam_w = shaft_w + pad * 2
+    cam_h = shaft_h + pad * 2
+    cam_layer = Image.new("RGBA", (cam_w, cam_h), (0, 0, 0, 0))
+    silhouette = draw_camshaft_silhouette((shaft_w, shaft_h))
+    cam_layer.alpha_composite(silhouette, (pad, pad))
 
-    # Minimal dust + grain
-    particle_dust(canvas, count=60)
+    # Rim light
+    rim = add_rim_light(cam_layer, color_leading=AMBER, color_cool=COOL)
+
+    # Motion blur the rim for that long-exposure feel
+    smear_samples = 40
+    smear_length = 520
+    smear = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    for i in range(smear_samples):
+        t = i / (smear_samples - 1)
+        offset_x = int(-smear_length * (1 - t))
+        # Stronger at head, fading toward tail
+        opacity_factor = (t ** 2.0) * 12.0 / smear_samples
+        frame = rim.copy()
+        frame.putalpha(
+            Image.eval(
+                frame.split()[3],
+                lambda v, o=opacity_factor: min(int(v * o), 255),
+            )
+        )
+        smear.alpha_composite(frame, (shaft_x - pad + offset_x, shaft_y - pad))
+    smear = smear.filter(ImageFilter.GaussianBlur(radius=3))
+    canvas.alpha_composite(smear)
+
+    # Crisp silhouette + rim on top so the subject reads cleanly at head
+    canvas.alpha_composite(cam_layer, (shaft_x - pad, shaft_y - pad))
+    canvas.alpha_composite(rim, (shaft_x - pad, shaft_y - pad))
+
+    # 6. Plasma heat shield on the leading edge — large and dominant
+    plasma_leading_edge(canvas, leading_edge_x + 10, leading_edge_y, size=180)
+
+    # 7. Extra motion trails streaming from leading edge (short, bright)
+    head_streaks = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(head_streaks)
+    for _ in range(80):
+        y = shaft_center_y + int(random.gauss(0, 40))
+        length = random.randint(80, 240)
+        alpha = random.randint(60, 170)
+        color = random.choice([PLASMA, AMBER, WARM])
+        start = leading_edge_x + 20 - length
+        d.line([(start, y), (leading_edge_x + 10, y)], fill=(*color, alpha), width=1)
+    head_streaks = head_streaks.filter(ImageFilter.GaussianBlur(radius=1.2))
+    canvas.alpha_composite(head_streaks)
+
+    # 8. Minimal dust + grain
+    particle_dust(canvas, count=40)
     film_grain(canvas, amount=5200)
 
-    # Final: soft overall vignette
+    # 9. Final vignette
     vignette_mask = Image.new("L", (WIDTH, HEIGHT), 0)
     vd = ImageDraw.Draw(vignette_mask)
     vd.ellipse([-500, -500, WIDTH + 500, HEIGHT + 500], fill=255)
-    vignette_mask = vignette_mask.filter(ImageFilter.GaussianBlur(radius=220))
-    dark = Image.new("RGBA", canvas.size, (0, 0, 0, 140))
+    vignette_mask = vignette_mask.filter(ImageFilter.GaussianBlur(radius=240))
+    dark = Image.new("RGBA", canvas.size, (0, 0, 0, 160))
     inv = Image.eval(vignette_mask, lambda v: 255 - v)
     dark.putalpha(inv)
     canvas.alpha_composite(dark)
@@ -240,8 +409,7 @@ def main() -> None:
     final.save(OUT_PATH, "PNG", optimize=True)
     import os
 
-    size_kb = os.path.getsize(OUT_PATH) / 1024
-    print(f"Saved: {OUT_PATH} ({WIDTH}x{HEIGHT}, {size_kb:.1f} KB)")
+    print(f"Saved: {OUT_PATH} ({WIDTH}x{HEIGHT}, {os.path.getsize(OUT_PATH)/1024:.1f} KB)")
 
 
 if __name__ == "__main__":
