@@ -1,4 +1,5 @@
 mod commands;
+mod critical_chain;
 mod error;
 mod modes;
 mod plan;
@@ -158,6 +159,25 @@ enum Commands {
         /// Overwrite existing plan
         #[arg(long, default_value_t = false)]
         force: bool,
+    },
+
+    /// Scaffold a plan from a built-in template
+    Template {
+        /// Template name (e.g. feature-impl, bug-fix, migration, launch, research-spike)
+        #[arg(default_value = "")]
+        template: String,
+
+        /// Plan name (used for plan metadata)
+        #[arg(long, default_value = "")]
+        name: String,
+
+        /// Output as YAML file instead of creating the plan directly
+        #[arg(long)]
+        output: Option<String>,
+
+        /// List available templates
+        #[arg(long, default_value_t = false)]
+        list: bool,
     },
 }
 
@@ -422,6 +442,21 @@ fn main() {
         }
         Commands::LevelResources { apply } => commands::level::run(apply),
         Commands::Bulk { file, force } => commands::bulk::run(&file, force),
+        Commands::Template { template, name, output, list } => {
+            if list {
+                commands::template::list()
+            } else if template.is_empty() {
+                Err(crate::error::CamshaftError::ValidationFailed(
+                    "Template name required. Pass a template name or --list to see options.".to_string(),
+                ))
+            } else if name.is_empty() {
+                Err(crate::error::CamshaftError::ValidationFailed(
+                    "Plan name required. Pass --name <plan name>.".to_string(),
+                ))
+            } else {
+                commands::template::run(&template, &name, output.as_deref())
+            }
+        }
     };
 
     if let Err(e) = result {

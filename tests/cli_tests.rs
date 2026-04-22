@@ -875,3 +875,115 @@ fn test_bulk_rejects_absolute_path() {
         .failure()
         .stderr(predicate::str::contains("validation_failed"));
 }
+
+/// Diamond graph: A(2) -> B(4), C(3); B -> D(1), C -> D(1).
+/// Zero-float set is {A, B, D} (A->B->D = 7 > A->C->D = 6).
+/// Verifies `critical_path` is a proper chain, not the topo-ordered
+/// zero-float set (which could have been something like [A, B, D]
+/// or [A, B, C, D] if GanttML ever widened it).
+#[test]
+fn test_critical_path_is_a_proper_chain_on_diamond() {
+    let dir = setup_test_dir();
+    camshaft()
+        .current_dir(dir.path())
+        .args(["init", "--name", "Diamond", "--mode", "roadmap", "--start", "2026-01-05"])
+        .assert()
+        .success();
+
+    for (id, dur) in [("a", "2"), ("b", "4"), ("c", "3"), ("d", "1")] {
+        camshaft()
+            .current_dir(dir.path())
+            .args(["add", "task", id, "--name", id, "--duration", dur])
+            .assert()
+            .success();
+    }
+    for (from, to) in [("a", "b"), ("a", "c"), ("b", "d"), ("c", "d")] {
+        camshaft()
+            .current_dir(dir.path())
+            .args(["add", "dep", from, to])
+            .assert()
+            .success();
+    }
+
+    // optimize: critical_path should be [a, b, d]
+    let out = camshaft()
+        .current_dir(dir.path())
+        .args(["optimize"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let chain: Vec<String> = v["critical_path"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(chain, vec!["a", "b", "d"], "critical_path should be [a,b,d], got {:?}", chain);
+    assert_eq!(v["critical_path_is_chain"], serde_json::json!(true));
+    assert!((v["critical_path_duration"].as_f64().unwrap() - 7.0).abs() < 1e-9);
+
+    // query critical-path should return the same chain.
+    let out2 = camshaft()
+        .current_dir(dir.path())
+        .args(["query", "critical-path"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text2 = String::from_utf8(out2).unwrap();
+    let v2: serde_json::Value = serde_json::from_str(&text2).unwrap();
+    let chain2: Vec<String> = v2["critical_path"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(chain2, vec!["a", "b", "d"]);
+}
+
+#[test]
+fn test_template_list() {
+    let dir = setup_test_dir();
+    camshaft()
+        .current_dir(dir.path())
+        .args(["template", "--list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"templates\""))
+        .stdout(predicate::str::contains("feature-impl"))
+        .stdout(predicate::str::contains("bug-fix"))
+        .stdout(predicate::str::contains("migration"))
+        .stdout(predicate::str::contains("launch"))
+        .stdout(predicate::str::contains("research-spike"));
+
+    // --list must not create a plan file
+    assert!(!dir.path().join(".camshaft/plan.json").exists());
+}
+
+#[test]
+fn test_template_feature_impl() {
+    let dir = setup_test_dir();
+    camshaft()
+        .current_dir(dir.path())
+        .args(["template", "feature-impl", "--name", "Auth Feature"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"created\""))
+        .stdout(predicate::str::contains("\"template\": \"feature-impl\""))
+        .stdout(predicate::str::contains("\"tasks_created\": 6"))
+        .stdout(predicate::str::contains("\"dependencies_created\": 6"));
+
+    assert!(dir.path().join(".camshaft/plan.json").exists());
+
+    // Plan should validate cleanly
+    camshaft()
+        .current_dir(dir.path())
+        .args(["validate"])
+        .assert()
+        .success();
+}

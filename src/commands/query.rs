@@ -5,6 +5,7 @@ use gantt_ml::model::types::{ActivityStatus, Duration};
 use gantt_ml::Project;
 use serde_json::json;
 
+use crate::critical_chain::{build_critical_chain, chain_duration, is_valid_chain};
 use crate::error::{CamshaftError, Result};
 use crate::plan::load_plan;
 
@@ -62,10 +63,18 @@ fn load_and_calculate() -> Result<(crate::plan::CamshaftFile, gantt_ml::cpm::Cpm
 
 /// Print the critical path and project duration.
 pub fn critical_path() -> Result<()> {
-    let (_plan, cpm) = load_and_calculate()?;
+    let (plan, cpm) = load_and_calculate()?;
+
+    let (chain, alternates) = build_critical_chain(&plan.project, &cpm);
+    let chain_dur = chain_duration(&plan.project, &chain);
+    let is_chain = is_valid_chain(&plan.project, &chain);
 
     let output = json!({
-        "critical_path": cpm.critical_path,
+        "critical_path": chain,
+        "critical_path_is_chain": is_chain,
+        "critical_path_duration": chain_dur,
+        "alternate_critical_paths": alternates,
+        "critical_path_topo": cpm.critical_path,
         "project_duration": cpm.project_duration,
     });
 
@@ -311,6 +320,7 @@ pub fn suggest_order() -> Result<()> {
     let (plan, cpm) = load_and_calculate()?;
 
     let groups = compute_parallel_groups(&cpm, &plan.project);
+    let (critical_chain, alternate_chains) = build_critical_chain(&plan.project, &cpm);
 
     let execution_order: Vec<serde_json::Value> = groups
         .iter()
@@ -325,6 +335,8 @@ pub fn suggest_order() -> Result<()> {
 
     let output = json!({
         "execution_order": execution_order,
+        "critical_path": critical_chain,
+        "alternate_critical_paths": alternate_chains,
     });
 
     println!("{}", serde_json::to_string_pretty(&output).unwrap());

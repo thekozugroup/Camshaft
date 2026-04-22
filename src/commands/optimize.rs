@@ -9,6 +9,7 @@ use gantt_ml::optimizer::{
 use gantt_ml::Project;
 use serde_json::{json, Value};
 
+use crate::critical_chain::{build_critical_chain, chain_duration, is_valid_chain};
 use crate::error::{CamshaftError, Result};
 use crate::plan::{load_plan, save_plan};
 
@@ -197,6 +198,13 @@ pub fn run(
     };
 
     let parallel_groups = compute_parallel_groups(&cpm, &plan.project);
+
+    // Build a proper predecessor-successor chain from the zero-float set.
+    // GanttML's cpm.critical_path is topologically ordered (may include both
+    // sides of a diamond); we walk the dep graph to get a real chain.
+    let (critical_chain, alternate_chains) = build_critical_chain(&plan.project, &cpm);
+    let critical_chain_duration = chain_duration(&plan.project, &critical_chain);
+    let critical_path_is_chain = is_valid_chain(&plan.project, &critical_chain);
 
     let bottlenecks: Vec<String> = cpm
         .total_float
@@ -400,12 +408,12 @@ pub fn run(
             )
         };
 
-        let path_clause = if cpm.critical_path.is_empty() {
+        let path_clause = if critical_chain.is_empty() {
             String::new()
         } else {
             format!(
                 " Then proceed through critical path: {}",
-                cpm.critical_path.join(" \u{2192} ")
+                critical_chain.join(" \u{2192} ")
             )
         };
 
@@ -414,7 +422,11 @@ pub fn run(
 
     let mut output = json!({
         "project_duration": cpm.project_duration,
-        "critical_path": cpm.critical_path,
+        "critical_path": critical_chain,
+        "critical_path_is_chain": critical_path_is_chain,
+        "critical_path_duration": critical_chain_duration,
+        "alternate_critical_paths": alternate_chains,
+        "critical_path_topo": cpm.critical_path,
         "parallel_groups": groups_json,
         "total_float": cpm.total_float,
         "bottlenecks": bottlenecks,
